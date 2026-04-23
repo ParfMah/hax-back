@@ -1,0 +1,15 @@
+# Variables d'environnement (contient vos mots de passe — NE JAMAIS committer)
+.env
+.env.local
+.env.production
+
+# Dépendances Node (se réinstallent avec "npm install")
+node_modules/
+
+# Fichiers de logs générés automatiquement
+logs/
+*.log
+
+# Fichiers système
+.DS_Store
+Thumbs.db

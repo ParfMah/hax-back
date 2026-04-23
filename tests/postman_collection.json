@@ -1,0 +1,113 @@
+{
+  "info": {
+    "name": "HaxFinance API — Tests",
+    "_postman_id": "haxfinance-tests",
+    "description": "Collection de tests pour l'API HaxFinance.\n\nImporter dans Postman : File → Import → sélectionner ce fichier.\n\nPuis créer un environnement Postman avec :\n  BASE_URL = http://localhost:5000",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "BASE_URL",  "value": "http://localhost:5000" },
+    { "key": "REFERENCE", "value": "HAX-XXXXXXXXXX" }
+  ],
+  "item": [
+    {
+      "name": "1. ✅ Santé — Vérifier que le serveur tourne",
+      "request": {
+        "method": "GET",
+        "url":    "{{BASE_URL}}/api/health",
+        "description": "Doit répondre 200 OK avec statut: 'OK ✅'.\nOuvrez aussi dans le navigateur : http://localhost:5000/api/health"
+      }
+    },
+    {
+      "name": "2. ✅ Créer une demande VALIDE",
+      "request": {
+        "method": "POST",
+        "url":    "{{BASE_URL}}/api/loan-request",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"prenom\": \"Marie\",\n  \"nom\": \"Dupont\",\n  \"email\": \"marie.dupont@gmail.com\",\n  \"telephone\": \"0612345678\",\n  \"typePret\": \"immobilier\",\n  \"montant\": 180000,\n  \"duree\": 240,\n  \"revenusMensuels\": 4500,\n  \"situationPro\": \"salarie-cdi\",\n  \"message\": \"Achat appartement à Lyon.\"\n}"
+        },
+        "description": "Crée une demande valide. La réponse contient la référence (HAX-XXXXXXXXXX).\nCopiez la référence pour les tests suivants."
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "exec": [
+            "if (pm.response.code === 201) {",
+            "  const json = pm.response.json();",
+            "  pm.collectionVariables.set('REFERENCE', json.data.reference);",
+            "  console.log('✅ Référence sauvegardée :', json.data.reference);",
+            "}"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "3. ✅ Lire une demande par référence",
+      "request": {
+        "method": "GET",
+        "url":    "{{BASE_URL}}/api/loan-request/{{REFERENCE}}",
+        "description": "Récupère les détails d'une demande.\nLa variable REFERENCE est auto-remplie par le test 2."
+      }
+    },
+    {
+      "name": "4. ✅ Lister toutes les demandes",
+      "request": {
+        "method": "GET",
+        "url":    "{{BASE_URL}}/api/loan-requests?page=1&limit=10",
+        "description": "Liste les 10 premières demandes, les plus récentes d'abord."
+      }
+    },
+    {
+      "name": "5. ✅ Statistiques",
+      "request": {
+        "method": "GET",
+        "url":    "{{BASE_URL}}/api/loan-requests/stats",
+        "description": "Totaux par statut et par type de prêt."
+      }
+    },
+    {
+      "name": "6. ✅ Changer le statut",
+      "request": {
+        "method": "PATCH",
+        "url":    "{{BASE_URL}}/api/loan-request/{{REFERENCE}}/statut",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"statut\": \"en_cours\",\n  \"notes\": \"Dossier en cours d'analyse.\"\n}"
+        },
+        "description": "Met à jour le statut. Valeurs: en_attente, en_cours, approuve, refuse, annule"
+      }
+    },
+    {
+      "name": "7. ❌ Demande avec erreurs de validation",
+      "request": {
+        "method": "POST",
+        "url":    "{{BASE_URL}}/api/loan-request",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"prenom\": \"A\",\n  \"email\": \"pas-un-email\",\n  \"montant\": 50\n}"
+        },
+        "description": "Doit retourner 422 avec la liste des erreurs. Utile pour tester la validation."
+      }
+    },
+    {
+      "name": "8. ❌ Référence inexistante",
+      "request": {
+        "method": "GET",
+        "url":    "{{BASE_URL}}/api/loan-request/HAX-ZZZZZZZZZZ",
+        "description": "Doit retourner 404."
+      }
+    },
+    {
+      "name": "9. ❌ Route inexistante",
+      "request": {
+        "method": "GET",
+        "url":    "{{BASE_URL}}/api/cette-route-nexiste-pas",
+        "description": "Doit retourner 404 avec un message d'aide."
+      }
+    }
+  ]
+}
