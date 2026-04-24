@@ -19,8 +19,8 @@ const transporteur = nodemailer.createTransport({
   // true  = connexion SSL directe (pour port 465)
   secure: process.env.EMAIL_SECURE === 'true',
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    user: process.env.GMAIL_USER || process.env.EMAIL_USER,
+    pass: process.env.GMAIL_PASS || process.env.EMAIL_PASS,
   },
   connectionTimeout: 5000, // 5 secondes max pour se connecter
   greetingTimeout:   3000,

@@ -28,6 +28,7 @@ const logger                     = require('./utils/logger');
 
 // ── Étape 3 : Créer l'application Express ───────────────────
 const app  = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 
 // ════════════════════════════════════════════════════════════════
