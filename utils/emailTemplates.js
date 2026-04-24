@@ -192,7 +192,7 @@ const emailConfirmationClient = ({ client, pret, reference, dateCreation }) => {
     <table style="${S.table}">
       <tr><td style="${S.tdL}">Type de prêt</td><td style="${S.tdR}">${typeLabel}</td></tr>
       <tr><td style="${S.tdL}">Montant demandé</td><td style="${S.tdR};font-size:16px;color:#00C896;">${fmt(pret.montant)}</td></tr>
-      <tr><td style="${S.tdL}">Durée</td><td style="${S.tdR}">${pret.duree} mois</td></tr>
+      <tr><td style="${S.tdL}">Durée de remboursement</td><td style="${S.tdR}">${pret.duree} mois</td></tr>
       <tr><td style="${S.tdL}">Mensualité estimée</td><td style="${S.tdR}">${fmt(pret.mensualiteEstimee)} / mois</td></tr>
       <tr><td style="${S.tdL}">Date de soumission</td><td style="${S.tdR}">${fmtDate(dateCreation)}</td></tr>
     </table>
@@ -200,7 +200,7 @@ const emailConfirmationClient = ({ client, pret, reference, dateCreation }) => {
     <div style="${S.secTitle}">📅 Prochaines étapes</div>
     ${[
       'Un conseiller analysera votre dossier sous <b>24h ouvrées</b>.',
-      'Vous serez contacté par email ou par téléphone.',
+      'Vous serez contacté par email, par whatsApp ou par téléphone.',
       'Préparez vos <b>3 derniers bulletins de salaire</b> et votre <b>avis d\'imposition</b>.',
       'Aucune décision définitive n\'est prise sans votre accord.',
     ].map((e, i) => `
