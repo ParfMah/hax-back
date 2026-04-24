@@ -13,7 +13,7 @@
 
 const LoanRequest = require('../models/LoanRequest');
 const { transporteur } = require('../config/email');
-const { emailConseiller, emailConfirmationClient } = require('../utils/emailTemplates');
+const { emailConseiller, emailConfirmationClient, emailReponseConseiller } = require('../utils/emailTemplates');
 const logger = require('../utils/logger');
 
 // ── Taux annuels par type de prêt ───────────────────────────
@@ -293,20 +293,35 @@ const mettreAJourStatut = async (req, res) => {
     const miseAJour = { statut };
     if (notes !== undefined) miseAJour.notesConseiller = notes;
 
+    // Mise à jour en base de données
     const demande = await LoanRequest.findOneAndUpdate(
       { reference },
       miseAJour,
-      { new: true, runValidators: true }  // new: true = retourne le doc mis à jour
+      { new: true, runValidators: true }
     );
 
     if (!demande) {
       return res.status(404).json({ succes: false, message: 'Demande introuvable' });
     }
 
+    // ── NOUVEAU : Envoi de l'email si un message (notes) est présent ──
+    if (notes && notes.trim() !== "") {
+      try {
+        await transporteur.sendMail(emailReponseConseiller({
+          client: demande.client,
+          messageConseiller: notes,
+          reference: demande.reference
+        }));
+        logger.info(`📧 Réponse conseiller envoyée au client pour la réf: ${reference}`);
+      } catch (errEmail) {
+        logger.error(`❌ Échec envoi réponse email : ${errEmail.message}`);
+      }
+    }
+
     logger.info(`🔄 Statut mis à jour : ${demande.reference} → ${statut}`);
     return res.status(200).json({
       succes: true,
-      message: `Statut mis à jour : ${statut}`,
+      message: `Statut mis à jour ${notes ? 'et email envoyé' : ''} : ${statut}`,
       data: demande,
     });
 

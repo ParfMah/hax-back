@@ -192,7 +192,7 @@ const emailConfirmationClient = ({ client, pret, reference, dateCreation }) => {
     <table style="${S.table}">
       <tr><td style="${S.tdL}">Type de prêt</td><td style="${S.tdR}">${typeLabel}</td></tr>
       <tr><td style="${S.tdL}">Montant demandé</td><td style="${S.tdR};font-size:16px;color:#00C896;">${fmt(pret.montant)}</td></tr>
-      <tr><td style="${S.tdL}">Durée de remboursement</td><td style="${S.tdR}">${pret.duree} mois</td></tr>
+      <tr><td style="${S.tdL}">Durée </td><td style="${S.tdR}">${pret.duree} mois</td></tr>
       <tr><td style="${S.tdL}">Mensualité estimée</td><td style="${S.tdR}">${fmt(pret.mensualiteEstimee)} / mois</td></tr>
       <tr><td style="${S.tdL}">Date de soumission</td><td style="${S.tdR}">${fmtDate(dateCreation)}</td></tr>
     </table>
@@ -201,7 +201,7 @@ const emailConfirmationClient = ({ client, pret, reference, dateCreation }) => {
     ${[
       'Un conseiller analysera votre dossier sous <b>24h ouvrées</b>.',
       'Vous serez contacté par email, par whatsApp ou par téléphone.',
-      'Préparez vos <b>3 derniers bulletins de salaire</b> et votre <b>avis d\'imposition</b>.',
+      'Préparez vos <b>3 derniers bulletins de salaire (ou <b>2 derniers bilans</b>)</b> et votre <b>avis d\'imposition</b>.',
       'Aucune décision définitive n\'est prise sans votre accord.',
     ].map((e, i) => `
     <div style="display:flex;align-items:flex-start;gap:10px;padding:10px;background:#F4F7FC;border-radius:8px;margin-bottom:8px;">
@@ -220,4 +220,40 @@ const emailConfirmationClient = ({ client, pret, reference, dateCreation }) => {
   };
 };
 
-module.exports = { emailConseiller, emailConfirmationClient };
+// ════════════════════════════════════════════════════════════════
+//  EMAIL 3 : Réponse personnalisée du conseiller au client
+// ════════════════════════════════════════════════════════════════
+const emailReponseConseiller = ({ client, messageConseiller, reference }) => {
+  return {
+    to:      client.email,
+    from:    process.env.EMAIL_FROM,
+    replyTo: process.env.EMAIL_REPLY_TO,
+    subject: `Réponse à votre demande [${reference}] — HaxFinance`,
+
+    html: `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"></head>
+<body style="${S.body}">
+<div style="${S.wrap}">
+  <div style="${S.header}">
+    <div style="${S.logoTxt}">Hax<span style="${S.logoSpan}">Finance</span></div>
+  </div>
+  <div style="${S.body2}">
+    <h1 style="${S.h1}">Bonjour ${client.prenom},</h1>
+    <p style="font-size:14px;color:#07112B;line-height:1.6;margin-bottom:24px;">
+      ${messageConseiller.replace(/\n/g, '<br>')}
+    </p>
+
+    <div style="background:#F4F7FC;border-radius:10px;padding:15px;margin-top:20px;border-left:4px solid #00C896;">
+      <p style="font-size:12px;color:#8A9BC0;margin:0;">Votre conseiller reste à votre disposition concernant le dossier <b>${reference}</b>.</p>
+    </div>
+
+    <div style="text-align:center;margin-top:24px;">
+      <p style="font-size:12px;color:#8A9BC0;">L'équipe HaxFinance</p>
+    </div>
+  </div>
+  <div style="${S.footer}"><p style="${S.footerTxt}">© 2026 HaxFinance · Sécurité & Confidentialité</p></div>
+</div>
+</body></html>`,
+  };
+};
+
+module.exports = { emailConseiller, emailConfirmationClient, emailReponseConseiller };
