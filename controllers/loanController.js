@@ -93,7 +93,7 @@ const creerDemande = async (req, res) => {
 
     // ── 4. Sauvegarde en base de données ────────────────────
     await nouvelleDemande.save();
-    logger.info(`💾 Demande sauvegardée avec la référence : ${nouvelleDemande.reference()}`);
+    logger.info(`💾 Demande sauvegardée avec la référence : ${nouvelleDemande.reference}`);
 
     // ── 5. Envoi des emails (en parallèle pour la performance) ─
     let emailEnvoye = false;
