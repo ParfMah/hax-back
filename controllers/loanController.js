@@ -1,71 +1,73 @@
-// ════════════════════════════════════════════════════════════════
-//  controllers/loanController.js — Logique métier des demandes
+// ================================================================
+//  controllers/loanController.js
+//  Logique métier pour les demandes de prêt
 //
-//  Le "contrôleur" contient la vraie logique de l'application.
-//  Il reçoit des données DÉJÀ VALIDÉES par le middleware,
-//  effectue les traitements, et retourne une réponse JSON.
+//  Le contrôleur est le "cerveau" de chaque route.
+//  Il reçoit la requête validée, exécute la logique métier,
+//  interagit avec la base de données et les services (email),
+//  puis retourne une réponse.
 //
-//  Flux complet d'une demande :
-//  Route → rateLimiter → validation → [CE FICHIER] → réponse
-// ════════════════════════════════════════════════════════════════
+//  Structure MVC :
+//    Route → Middleware → Controller → Model + Services → Réponse
+// ================================================================
 
-const LoanRequest  = require('../models/LoanRequest');
+const LoanRequest = require('../models/LoanRequest');
 const { transporteur } = require('../config/email');
 const { emailConseiller, emailConfirmationClient } = require('../utils/emailTemplates');
 const logger = require('../utils/logger');
 
-// ── Taux annuels par type de prêt (source côté SERVEUR) ──────
-// ⚠️  On N'utilise JAMAIS le taux envoyé par le formulaire.
-//     Un utilisateur malveillant pourrait envoyer taux=0.
-//     Le serveur recalcule TOUJOURS à partir de ces valeurs.
+// ── Taux annuels par type de prêt ───────────────────────────
+// Source unique de vérité côté serveur.
+// On NE fait JAMAIS confiance au taux envoyé par le client.
 const TAUX_ANNUELS = {
-  personnel:  0.030,   // 3.0%
-  immobilier: 0.021,   // 2.1%
-  automobile: 0.027,   // 2.7%
-  rachat:     0.028,   // 2.8%
+  'personnel':  0.030,   // 3.0%
+  'immobilier': 0.021,   // 2.1%
+  'automobile': 0.027,   // 2.7%
+  'rachat':     0.028,   // 2.8%
 };
 
 /**
  * Calcule la mensualité d'un prêt amortissable.
+ * Formule : M = C × [t(1+t)^n] / [(1+t)^n - 1]
  *
- * Formule bancaire standard :
- *   M = C × [t × (1+t)^n] / [(1+t)^n - 1]
- *
- *   M = mensualité
- *   C = capital (montant emprunté)
- *   t = taux mensuel = taux annuel / 12
- *   n = durée en mois
+ * @param {number} capital  - Montant emprunté en €
+ * @param {number} tauxAnn  - Taux annuel (ex: 0.03 pour 3%)
+ * @param {number} n        - Durée en mois
+ * @returns {number}        - Mensualité arrondie à 2 décimales
  */
-const calculerMensualite = (capital, tauxAnnuel, dureeEnMois) => {
-  if (dureeEnMois <= 0 || capital <= 0) return 0;
-  const t = tauxAnnuel / 12; // Taux mensuel
-  if (t === 0) return capital / dureeEnMois;
-  const mensualite = capital * (t * Math.pow(1 + t, dureeEnMois))
-                   / (Math.pow(1 + t, dureeEnMois) - 1);
-  return Math.round(mensualite * 100) / 100; // Arrondi à 2 décimales
+const calculerMensualite = (capital, tauxAnn, n) => {
+  if (n <= 0 || capital <= 0) return 0;
+  const tauxMens = tauxAnn / 12;
+  if (tauxMens === 0) return capital / n;
+  const mensualite = capital * (tauxMens * Math.pow(1 + tauxMens, n))
+                   / (Math.pow(1 + tauxMens, n) - 1);
+  return Math.round(mensualite * 100) / 100;
 };
 
 
 // ════════════════════════════════════════════════════════════════
-//  1. CRÉER UNE DEMANDE — POST /api/loan-request
+//  CONTRÔLEUR 1 : Créer une demande de prêt
+//  POST /api/loan-request
 // ════════════════════════════════════════════════════════════════
 const creerDemande = async (req, res) => {
   try {
-    // Les données sont déjà validées et nettoyées par le middleware
+    // ── 1. Extraction des données validées ──────────────────
+    // À ce stade, les données sont déjà validées et nettoyées
+    // par le middleware express-validator
     const {
       prenom, nom, email, telephone,
       typePret, montant, duree,
       revenusMensuels, situationPro, message
     } = req.body;
 
-    // Calcul de la mensualité côté serveur (fiable)
-    const tauxAnnuel     = TAUX_ANNUELS[typePret];
-    const mensualite     = calculerMensualite(montant, tauxAnnuel, duree);
+    // ── 2. Calcul serveur de la mensualité ──────────────────
+    // IMPORTANT : On recalcule toujours côté serveur !
+    // Ne jamais faire confiance aux données calculées côté client.
+    const tauxAnnuel      = TAUX_ANNUELS[typePret];
+    const mensualiteCalc  = calculerMensualite(montant, tauxAnnuel, duree);
 
-    logger.info(`📝 Nouvelle demande : ${prenom} ${nom} — ${typePret} ${montant}€ / ${duree}mois`);
-
-    // Création et sauvegarde en base de données
-    const demande = await LoanRequest.create({
+    // ── 3. Création de l'objet demande ──────────────────────
+    const nouvelleDemande = new LoanRequest({
       client: {
         nom,
         prenom,
@@ -78,115 +80,139 @@ const creerDemande = async (req, res) => {
         typePret,
         montant,
         duree,
-        revenusMensuels:   revenusMensuels || 0,
-        mensualiteEstimee: mensualite,
-        tauxAnnuel:        tauxAnnuel * 100, // Stocké en %
+        revenusMensuels: revenusMensuels || 0,
+        mensualiteEstimee: mensualiteCalc,
+        tauxAnnuel:        tauxAnnuel * 100, // Stocké en pourcentage
       },
       metadata: {
-        // IP réelle (fonctionne aussi derrière nginx)
+        // Récupération de la vraie IP (même derrière un proxy nginx)
         ipAddress: req.headers['x-forwarded-for']?.split(',')[0] || req.ip,
         userAgent: req.headers['user-agent'] || '',
-      },
+      }
     });
 
-    logger.info(`💾 Demande sauvegardée — Réf: ${demande.reference}`);
+    // ── 4. Sauvegarde en base de données ────────────────────
+    await nouvelleDemande.save();
+    logger.info(`💾 Demande sauvegardée : ${nouvelleDemande.resume()}`);
 
-    // ── Envoi des emails ──────────────────────────────────
-    // On lance les 2 emails EN MÊME TEMPS (parallèle = plus rapide)
-    // allSettled = si un email échoue, l'autre continue quand même
+    // ── 5. Envoi des emails (en parallèle pour la performance) ─
     let emailEnvoye = false;
     try {
-      const donnees = {
-        client:       demande.client,
-        pret:         demande.pret,
-        reference:    demande.reference,
-        dateCreation: demande.createdAt,
+      // Données formatées pour les templates
+      const donneesEmail = {
+        client:      nouvelleDemande.client,
+        pret:        nouvelleDemande.pret,
+        reference:   nouvelleDemande.reference,
+        dateCreation: nouvelleDemande.createdAt,
       };
 
-      const [resConseiller, resClient] = await Promise.allSettled([
-        transporteur.sendMail(emailConseiller(donnees)),
-        transporteur.sendMail(emailConfirmationClient(donnees)),
+      // Promise.allSettled : lance les 2 emails en parallèle
+      // et n'échoue pas si l'un des deux plante
+      const [resultConseiller, resultClient] = await Promise.allSettled([
+        transporteur.sendMail(emailConseiller(donneesEmail)),
+        transporteur.sendMail(emailConfirmationClient(donneesEmail)),
       ]);
 
-      if (resConseiller.status === 'fulfilled') {
-        logger.info(`📧 Email conseiller envoyé — Réf: ${demande.reference}`);
+      // Log du résultat de chaque email
+      if (resultConseiller.status === 'fulfilled') {
+        logger.info(`📧 Email conseiller envoyé — Ref: ${nouvelleDemande.reference}`);
         emailEnvoye = true;
       } else {
-        logger.error(`❌ Email conseiller échoué : ${resConseiller.reason?.message}`);
+        logger.error(`❌ Email conseiller échoué : ${resultConseiller.reason?.message}`);
       }
 
-      if (resClient.status === 'fulfilled') {
-        logger.info(`📧 Email confirmation envoyé à ${email}`);
+      if (resultClient.status === 'fulfilled') {
+        logger.info(`📧 Email confirmation client envoyé — ${email}`);
       } else {
-        logger.error(`❌ Email client échoué : ${resClient.reason?.message}`);
+        logger.error(`❌ Email client échoué : ${resultClient.reason?.message}`);
       }
 
-      // Mise à jour du flag "email envoyé" en base
-      await LoanRequest.updateOne({ _id: demande._id }, { 'metadata.emailEnvoye': emailEnvoye });
+      // Mettre à jour le flag email en base
+      await LoanRequest.updateOne(
+        { _id: nouvelleDemande._id },
+        { 'metadata.emailEnvoye': emailEnvoye }
+      );
 
-    } catch (errEmail) {
-      // L'email a planté mais la demande EST bien sauvegardée
-      // On ne fait PAS échouer la requête pour autant
-      logger.error(`Erreur envoi email : ${errEmail.message}`);
+    } catch (erreurEmail) {
+      // L'email a planté mais on ne fait PAS échouer la requête :
+      // la demande est bien en base, les emails peuvent être renvoyés manuellement
+      logger.error(`Erreur envoi email : ${erreurEmail.message}`);
     }
 
-    // ── Réponse de succès au client ───────────────────────
-    // 201 = "Created" (une ressource a été créée)
+    // ── 6. Réponse de succès ────────────────────────────────
+    // Status 201 = "Created" (ressource créée avec succès)
     return res.status(201).json({
-      succes:  true,
-      message: 'Votre demande a bien été enregistrée ! Un conseiller vous contactera sous 24 heures.',
+      succes: true,
+      message: 'Votre demande a bien été enregistrée. Un conseiller vous contactera sous 24h.',
       data: {
-        reference:         demande.reference,
-        mensualiteEstimee: mensualite,
+        reference:         nouvelleDemande.reference,
+        mensualiteEstimee: mensualiteCalc,
         tauxAnnuel:        (tauxAnnuel * 100).toFixed(1) + '%',
-        statut:            demande.statut,
+        statut:            nouvelleDemande.statut,
         emailEnvoye,
       },
     });
 
   } catch (erreur) {
-    // ── Gestion des erreurs Mongoose ──────────────────────
+    // ── Gestion des erreurs Mongoose ────────────────────────
     if (erreur.name === 'ValidationError') {
-      // Les règles du modèle Mongoose ont refusé les données
+      // Erreur de validation Mongoose (double sécurité)
       const erreursSchema = Object.values(erreur.errors).map(e => ({
         champ:   e.path,
         message: e.message,
       }));
       return res.status(422).json({
-        succes: false, message: 'Données invalides', erreurs: erreursSchema,
+        succes: false,
+        message: 'Données invalides',
+        erreurs: erreursSchema,
       });
     }
-    // Erreur inattendue
-    logger.error(`Erreur création demande : ${erreur.message}`);
+
+    if (erreur.code === 11000) {
+      // Violation de contrainte d'unicité (ex: référence dupliquée — très rare)
+      return res.status(409).json({
+        succes: false,
+        message: 'Une erreur de duplication s\'est produite. Veuillez réessayer.',
+      });
+    }
+
+    // Erreur inattendue → 500
+    logger.error(`Erreur création demande : ${erreur.message}`, { stack: erreur.stack });
     return res.status(500).json({
-      succes:  false,
-      message: 'Erreur serveur. Veuillez réessayer dans quelques instants.',
+      succes: false,
+      message: 'Une erreur serveur s\'est produite. Veuillez réessayer dans quelques instants.',
     });
   }
 };
 
 
 // ════════════════════════════════════════════════════════════════
-//  2. LISTER LES DEMANDES — GET /api/loan-requests
-//  (Pour le tableau de bord du conseiller)
+//  CONTRÔLEUR 2 : Récupérer toutes les demandes
+//  GET /api/loan-requests
+//  (Route d'administration — à protéger en production)
 // ════════════════════════════════════════════════════════════════
 const obtenirToutesDemandes = async (req, res) => {
   try {
-    // Pagination : ?page=1&limit=20
-    const page   = parseInt(req.query.page)  || 1;
-    const limite = parseInt(req.query.limit) || 20;
-    // Filtres optionnels : ?statut=en_attente&type=immobilier
-    const filtre = {};
-    if (req.query.statut) filtre.statut           = req.query.statut;
-    if (req.query.type)   filtre['pret.typePret'] = req.query.type;
+    // Paramètres de pagination et filtres depuis la query string
+    // Ex: /api/loan-requests?page=1&limit=10&statut=en_attente
+    const page    = parseInt(req.query.page)  || 1;
+    const limite  = parseInt(req.query.limit) || 20;
+    const statut  = req.query.statut;
+    const type    = req.query.type;
 
+    // Construction du filtre MongoDB
+    const filtre = {};
+    if (statut) filtre.statut            = statut;
+    if (type)   filtre['pret.typePret']  = type;
+
+    // Requête avec pagination
     const [demandes, total] = await Promise.all([
       LoanRequest
         .find(filtre)
-        .sort({ createdAt: -1 })          // Plus récentes d'abord
+        .sort({ createdAt: -1 })   // Plus récentes en premier
         .skip((page - 1) * limite)
         .limit(limite)
-        .select('-metadata.ipAddress'),   // On n'expose pas les IPs
+        .select('-metadata.ipAddress'), // Exclure les IPs de la réponse
       LoanRequest.countDocuments(filtre),
     ]);
 
@@ -194,26 +220,36 @@ const obtenirToutesDemandes = async (req, res) => {
       succes: true,
       data: {
         demandes,
-        pagination: { total, page, limite, pages: Math.ceil(total / limite) },
+        pagination: {
+          total,
+          page,
+          limite,
+          pages: Math.ceil(total / limite),
+        },
       },
     });
+
   } catch (erreur) {
-    logger.error(`Erreur liste demandes : ${erreur.message}`);
+    logger.error(`Erreur récupération demandes : ${erreur.message}`);
     return res.status(500).json({ succes: false, message: 'Erreur serveur' });
   }
 };
 
 
 // ════════════════════════════════════════════════════════════════
-//  3. UNE SEULE DEMANDE — GET /api/loan-request/:reference
+//  CONTRÔLEUR 3 : Récupérer une demande par référence
+//  GET /api/loan-request/:reference
 // ════════════════════════════════════════════════════════════════
 const obtenirDemandeParReference = async (req, res) => {
   try {
     const { reference } = req.params;
 
-    // Validation simple du format (HAX- + 10 caractères alphanumériques)
-    if (!reference || !/^HAX-[A-Z0-9]{10}$/.test(reference.toUpperCase())) {
-      return res.status(400).json({ succes: false, message: 'Format de référence invalide (ex: HAX-A1B2C3D4E5)' });
+    // Validation basique du format de la référence
+    if (!reference || !/^HAX-[A-Z0-9]{10}$/.test(reference)) {
+      return res.status(400).json({
+        succes: false,
+        message: 'Format de référence invalide',
+      });
     }
 
     const demande = await LoanRequest
@@ -221,10 +257,14 @@ const obtenirDemandeParReference = async (req, res) => {
       .select('-metadata.ipAddress');
 
     if (!demande) {
-      return res.status(404).json({ succes: false, message: 'Aucune demande trouvée avec cette référence.' });
+      return res.status(404).json({
+        succes: false,
+        message: 'Aucune demande trouvée avec cette référence',
+      });
     }
 
     return res.status(200).json({ succes: true, data: demande });
+
   } catch (erreur) {
     logger.error(`Erreur recherche demande : ${erreur.message}`);
     return res.status(500).json({ succes: false, message: 'Erreur serveur' });
@@ -233,12 +273,14 @@ const obtenirDemandeParReference = async (req, res) => {
 
 
 // ════════════════════════════════════════════════════════════════
-//  4. METTRE À JOUR LE STATUT — PATCH /api/loan-request/:ref/statut
+//  CONTRÔLEUR 4 : Mettre à jour le statut d'une demande
+//  PATCH /api/loan-request/:reference/statut
+//  (Pour le tableau de bord conseiller)
 // ════════════════════════════════════════════════════════════════
 const mettreAJourStatut = async (req, res) => {
   try {
-    const { reference }     = req.params;
-    const { statut, notes } = req.body;
+    const { reference }      = req.params;
+    const { statut, notes }  = req.body;
 
     const statutsValides = ['en_attente', 'en_cours', 'approuve', 'refuse', 'annule'];
     if (!statutsValides.includes(statut)) {
@@ -254,15 +296,20 @@ const mettreAJourStatut = async (req, res) => {
     const demande = await LoanRequest.findOneAndUpdate(
       { reference },
       miseAJour,
-      { new: true, runValidators: true }
+      { new: true, runValidators: true }  // new: true = retourne le doc mis à jour
     );
 
     if (!demande) {
       return res.status(404).json({ succes: false, message: 'Demande introuvable' });
     }
 
-    logger.info(`🔄 Statut mis à jour : ${reference} → ${statut}`);
-    return res.status(200).json({ succes: true, message: `Statut mis à jour : ${statut}`, data: demande });
+    logger.info(`🔄 Statut mis à jour : ${demande.reference} → ${statut}`);
+    return res.status(200).json({
+      succes: true,
+      message: `Statut mis à jour : ${statut}`,
+      data: demande,
+    });
+
   } catch (erreur) {
     logger.error(`Erreur mise à jour statut : ${erreur.message}`);
     return res.status(500).json({ succes: false, message: 'Erreur serveur' });
@@ -271,20 +318,40 @@ const mettreAJourStatut = async (req, res) => {
 
 
 // ════════════════════════════════════════════════════════════════
-//  5. STATISTIQUES — GET /api/loan-requests/stats
+//  CONTRÔLEUR 5 : Statistiques rapides
+//  GET /api/loan-requests/stats
 // ════════════════════════════════════════════════════════════════
 const obtenirStatistiques = async (req, res) => {
   try {
+    // Aggregation MongoDB : plusieurs calculs en une seule requête
     const [stats] = await LoanRequest.aggregate([
       {
         $facet: {
-          parStatut: [{ $group: { _id: '$statut', count: { $sum: 1 } } }],
-          parType:   [{ $group: { _id: '$pret.typePret', count: { $sum: 1 }, montantTotal: { $sum: '$pret.montant' } } }],
-          global:    [{ $group: { _id: null, total: { $sum: 1 }, montantMoyen: { $avg: '$pret.montant' }, montantTotal: { $sum: '$pret.montant' } } }],
-        },
-      },
+          // Total par statut
+          parStatut: [
+            { $group: { _id: '$statut', count: { $sum: 1 } } }
+          ],
+          // Total par type de prêt
+          parType: [
+            { $group: { _id: '$pret.typePret', count: { $sum: 1 }, montantTotal: { $sum: '$pret.montant' } } }
+          ],
+          // Montant moyen
+          global: [
+            {
+              $group: {
+                _id: null,
+                totalDemandes:  { $sum: 1 },
+                montantMoyen:   { $avg: '$pret.montant' },
+                montantTotal:   { $sum: '$pret.montant' },
+              }
+            }
+          ]
+        }
+      }
     ]);
+
     return res.status(200).json({ succes: true, data: stats });
+
   } catch (erreur) {
     logger.error(`Erreur statistiques : ${erreur.message}`);
     return res.status(500).json({ succes: false, message: 'Erreur serveur' });
