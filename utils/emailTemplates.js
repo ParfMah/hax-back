@@ -64,6 +64,9 @@ const S = {
 // ════════════════════════════════════════════════════════════════
 //  EMAIL 1 : Notification au conseiller
 // ════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+//  EMAIL 1 : Notification au conseiller (POUR TOI)
+// ════════════════════════════════════════════════════════════════
 const emailConseiller = ({ client, pret, reference, dateCreation }) => {
   const typeLabel     = LABELS_PRET[pret.typePret]        || pret.typePret;
   const situationLbl  = LABELS_SITUATION[client.situationPro] || client.situationPro || '—';
@@ -72,32 +75,56 @@ const emailConseiller = ({ client, pret, reference, dateCreation }) => {
     : 'Non renseigné';
 
   return {
-    to:      process.env.EMAIL_CONSEILLER, // RESTE VERS TOI
-    from:    process.env.EMAIL_FROM,
+    to:      process.env.EMAIL_CONSEILLER,
+    from:    `"Système HaxFinance" <${process.env.EMAIL_FROM}>`,
     replyTo: client.email,
-    subject: `🔔 Nouvelle demande [${reference}] — ${client.prenom} ${client.nom}`,
-    // ... (Le reste du HTML de l'Email 1 reste identique au tien)
+    subject: `🔔 NOUVELLE DEMANDE [${reference}] — ${client.prenom} ${client.nom}`,
+
     html: `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"></head>
 <body style="${S.body}">
 <div style="${S.wrap}">
   <div style="${S.header}">
-    <div style="${S.logoTxt}">Hax<span style="${S.logoSpan}">Finance</span> — Espace Conseiller</div>
+    <div style="${S.logoTxt}">Hax<span style="${S.logoSpan}">Finance</span></div>
+    <div style="color:#8A9BC0;font-size:12px;margin-top:4px;">Espace Administration</div>
   </div>
   <div style="${S.body2}">
     <div style="background:#FFF8E7;border-left:4px solid #F0B429;border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:24px;">
       <strong style="color:#07112B;">🔔 Nouvelle demande reçue</strong><br>
       <span style="font-size:12px;color:#8A9BC0;">Réf : <b style="color:#07112B;background:#EDF0F7;padding:2px 8px;border-radius:4px;">${reference}</b> · Le ${fmtDate(dateCreation)}</span>
     </div>
+
+    <div style="${S.secTitle}">👤 Client</div>
+    <table style="${S.table}">
+      <tr><td style="${S.tdL}">Nom complet</td><td style="${S.tdR}">${client.prenom} ${client.nom}</td></tr>
+      <tr><td style="${S.tdL}">Email</td><td style="${S.tdR}"><a href="mailto:${client.email}" style="color:#00C896;">${client.email}</a></td></tr>
+      <tr><td style="${S.tdL}">Téléphone</td><td style="${S.tdR}"><a href="tel:${client.telephone}" style="color:#00C896;">${client.telephone}</a></td></tr>
+      <tr><td style="${S.tdL}">Situation pro.</td><td style="${S.tdR}">${situationLbl}</td></tr>
+    </table>
+
+    <div style="${S.secTitle}">💰 Prêt demandé</div>
+    <table style="${S.table}">
+      <tr><td style="${S.tdL}">Type</td><td style="${S.tdR}"><span style="${S.badge}">${typeLabel}</span></td></tr>
+      <tr><td style="${S.tdL}">Montant</td><td style="${S.tdR};font-size:18px;color:#00C896;">${fmt(pret.montant)}</td></tr>
+      <tr><td style="${S.tdL}">Durée</td><td style="${S.tdR}">${pret.duree} mois (${(pret.duree/12).toFixed(1)} ans)</td></tr>
+      <tr><td style="${S.tdL}">Mensualité estimée</td><td style="${S.tdR}">${fmt(pret.mensualiteEstimee)} / mois</td></tr>
+      <tr><td style="${S.tdL}">Revenus nets</td><td style="${S.tdR}">${pret.revenusMensuels ? fmt(pret.revenusMensuels) : '—'}</td></tr>
+      <tr><td style="${S.tdL}">Taux d'endettement</td><td style="${S.tdR};color:${parseFloat(tauxEndt)>33?'#ef4444':'#22c55e'};">${tauxEndt}</td></tr>
+    </table>
+
+    ${client.message ? `
+    <div style="${S.secTitle}">💬 Message du client</div>
+    <div style="background:#F4F7FC;border-radius:8px;padding:14px;font-size:13px;color:#07112B;font-style:italic;margin-bottom:20px;line-height:1.6;">"${client.message}"</div>
+    ` : ''}
+
     <div style="text-align:center;margin-top:24px;">
       <a href="mailto:${client.email}?subject=Re: Votre demande [${reference}]" style="${S.btn}">Contacter le client</a>
     </div>
   </div>
-  <div style="${S.footer}"><p style="${S.footerTxt}">HaxFinance — Usage interne · Réf. ${reference}</p></div>
+  <div style="${S.footer}"><p style="${S.footerTxt}">HaxFinance Administration · Réf. ${reference}</p></div>
 </div>
 </body></html>`,
   };
 };
-
 
 // ════════════════════════════════════════════════════════════════
 //  EMAIL 2 : Confirmation au client
